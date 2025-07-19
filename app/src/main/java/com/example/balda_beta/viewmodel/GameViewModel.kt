@@ -43,17 +43,42 @@ class GameViewModel : ViewModel() {
     fun tryAddWord(word: String): Boolean {
         val upperWord = word.uppercase()
 
-        if (upperWord.length < 3) return false  // запрещаем короткие
-        if (usedWords.contains(upperWord)) return false
-        if (!dictionary.contains(upperWord)) return false
-        if (centralWord.contains(upperWord) && !upperWord.startsWith(centralWord)) return false
+        if (upperWord.length < 3) {
+            selectedPath.clear()
+            return false
+        }
+        if (usedWords.contains(upperWord)) {
+            selectedPath.clear()
+            return false
+        }
+        if (!dictionary.contains(upperWord)) {
+            selectedPath.clear()
+            return false
+        }
+
+        // ИСПРАВЛЕНО: проверяем, что слово не является подстрокой центрального слова
+        // только если оно не продолжает центральное слово
+        if (upperWord == centralWord) {
+            selectedPath.clear()
+            return false
+        }
+        if (centralWord.contains(upperWord) && !isWordExtension(upperWord)) {
+            selectedPath.clear()
+            return false
+        }
+
+        // Проверяем, что слово использует добавленную букву (если она была добавлена)
+        if (hasInsertedLetterThisTurn && !wordUsesInsertedLetter()) {
+            selectedPath.clear()
+            return false
+        }
 
         usedWords.add(upperWord)
 
         val current = _scores.value!!
         val updated = if (_playerTurn.value == 1)
-            current.copy(first = current.first + word.length)
-        else current.copy(second = current.second + word.length)
+            current.copy(first = current.first + upperWord.length)
+        else current.copy(second = current.second + upperWord.length)
         _scores.value = updated
 
         // Окончание хода
@@ -62,7 +87,22 @@ class GameViewModel : ViewModel() {
         hasInsertedLetterThisTurn = false
         _playerTurn.value = if (_playerTurn.value == 1) 2 else 1
 
+        selectedPath.clear() // Очищаем только после успешной проверки
         return true
+    }
+
+    // Проверяем, является ли слово расширением центрального слова
+    private fun isWordExtension(word: String): Boolean {
+        return word.length > centralWord.length &&
+                (word.startsWith(centralWord) || word.endsWith(centralWord) || word.contains(centralWord))
+    }
+
+    // Проверяем, использует ли составленное слово добавленную букву
+    private fun wordUsesInsertedLetter(): Boolean {
+        if (lastInsertedCell == null) return true
+
+        val (row, col) = lastInsertedCell!!
+        return selectedPath.contains(row to col)
     }
 
     fun resetLastInsertedLetter() {
@@ -72,6 +112,7 @@ class GameViewModel : ViewModel() {
             hasInsertedLetterThisTurn = false
             _board.value = _board.value
         }
+        selectedPath.clear() // Очищаем также и путь выделения
     }
 
     fun placeCentralWord(word: String) {
@@ -101,7 +142,7 @@ class GameViewModel : ViewModel() {
     fun finishSelection(): String {
         val board = _board.value ?: return ""
         val word = selectedPath.map { (i, j) -> board[i][j] }.joinToString("")
-        selectedPath.clear()
+        // НЕ очищаем selectedPath здесь, чтобы можно было проверить использование добавленной буквы
         return word
     }
 
@@ -115,7 +156,6 @@ class GameViewModel : ViewModel() {
         return board.value ?: Array(5) { Array(5) { "" } }
     }
 
-    // Не используется, можно удалить если не нужно
     fun isValidLetter(letter: String): Boolean {
         return letter.length == 1 && letter[0].isLetter()
     }

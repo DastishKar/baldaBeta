@@ -30,7 +30,6 @@ class MainActivity : AppCompatActivity() {
         const val CELL_SIZE = 120
     }
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -81,7 +80,12 @@ class MainActivity : AppCompatActivity() {
                 height = CELL_SIZE
                 rowSpec = GridLayout.spec(row)
                 columnSpec = GridLayout.spec(col)
+                // Добавляем отступы для видимых границ
+                setMargins(2, 2, 2, 2)
             }
+
+            // Устанавливаем цвет фона и границы для лучшей видимости
+            setBackgroundColor(getColorCompat(android.R.color.white))
 
             setOnTouchListener(createTouchListener(row, col))
             setOnClickListener { handleButtonClick(row, col) }
@@ -96,7 +100,10 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_MOVE -> handleTouchMove(event)
             MotionEvent.ACTION_UP -> {
                 handleTouchUp()
-                v.performClick()
+                // Разрешаем клик только если ячейка пустая (для добавления буквы)
+                if (!isCellOccupied(row, col)) {
+                    v.performClick()
+                }
             }
         }
         true
@@ -168,49 +175,38 @@ class MainActivity : AppCompatActivity() {
         }
 
         val input = EditText(this)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Введите букву")
             .setView(input)
             .setPositiveButton("OK") { _, _ ->
                 val letter = input.text.toString().uppercase()
-                if (letter.length == 1) {
+                if (letter.length == 1 && letter.all { it.isLetter() }) {
                     viewModel.placeLetter(row, col, letter)
-                    showWordDialog()
-                }
-            }.show()
-    }
-    private fun showWordDialog() {
-        val input = EditText(this)
-        AlertDialog.Builder(this)
-            .setTitle("Введите слово")
-            .setView(input)
-            .setPositiveButton("ОК") { _, _ ->
-                val word = input.text.toString().uppercase()
-                if (!viewModel.tryAddWord(word)) {
-                    Toast.makeText(this, "Недопустимое слово", Toast.LENGTH_SHORT).show()
-
-                    // ❗ Возврат клетки — откат последней буквы
-                    viewModel.resetLastInsertedLetter()
-
-                    // Сброс флага — игрок может попробовать снова
-                    viewModel.hasInsertedLetterThisTurn = false
+                } else {
+                    Toast.makeText(this, "Введите одну букву", Toast.LENGTH_SHORT).show()
                 }
             }
-            .show()
+            .setNegativeButton("Отмена", null)
+            .create()
+
+        dialog.show()
     }
 
-
+    // Удаляем неиспользуемый метод showWordDialog
+    // private fun showWordDialog() { ... }
 
     private fun selectButton(btn: Button, row: Int, col: Int) {
         if (!selectedButtons.contains(btn)) {
             selectedButtons.add(btn)
+            // ИСПРАВЛЕНО: используем временное выделение, которое сбрасывается после хода
             btn.setBackgroundColor(getColorCompat(R.color.teal_200))
         }
     }
 
     private fun resetSelection() {
         selectedButtons.forEach {
-            it.setBackgroundColor(getColorCompat(android.R.color.transparent))
+            // Возвращаем белый цвет для обычных ячеек
+            it.setBackgroundColor(getColorCompat(android.R.color.white))
         }
         selectedButtons.clear()
     }
@@ -252,9 +248,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun isCellOccupied(row: Int, col: Int): Boolean =
         viewModel.getBoard()[row][col].isNotEmpty()
-
-    private fun isValidLetter(letter: String): Boolean =
-        letter.length == 1 && letter.all { it.isLetter() }
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()

@@ -11,8 +11,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:rowCount="5"
-        android:columnCount="5"
-        android:layout_gravity="center"/>
+        android:columnCount="5" />
     <TextView
         android:id="@+id/tvPlayer1Score"
         android:layout_width="wrap_content"
