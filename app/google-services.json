@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "530952937614",
+    "firebase_url": "https://balda-c3e00-default-rtdb.firebaseio.com",
+    "project_id": "balda-c3e00",
+    "storage_bucket": "balda-c3e00.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:530952937614:android:e7788c53091082b235a9df",
+        "android_client_info": {
+          "package_name": "com.example.balda_beta"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyYzO6ttkxirHL7hMAKp94fbFhuOHR388"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
