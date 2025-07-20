@@ -1,5 +1,6 @@
 package com.example.balda_beta.ui
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.MotionEvent
 import android.widget.*
@@ -19,6 +20,12 @@ class MainActivity : AppCompatActivity() {
     private val selectedButtons = mutableListOf<Button>()
     private val buttons = Array(5) { Array<Button?>(5) { null } }
 
+    // UI элементы
+    private lateinit var timerTextView: TextView
+    private lateinit var player1TextView: TextView
+    private lateinit var player2TextView: TextView
+    private lateinit var currentPlayerTextView: TextView
+
     // Кэшируем значения для производительности
     private var cellWidth = 0
     private var cellHeight = 0
@@ -28,6 +35,14 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val GRID_SIZE = 5
         const val CELL_SIZE = 120
+
+        // Цветовая схема
+        const val COLOR_EMPTY = Color.WHITE
+        const val COLOR_CENTRAL_WORD = 0xFF4CAF50.toInt()      // Зеленый для центрального слова
+        const val COLOR_PLAYER_LETTER = 0xFF2196F3.toInt()     // Синий для букв игроков
+        const val COLOR_SELECTED = 0xFFFF9800.toInt()          // Оранжевый для выделенных
+        const val COLOR_PLAYER_ACTIVE = 0xFFE91E63.toInt()     // Розовый для активного игрока
+        const val COLOR_PLAYER_INACTIVE = 0xFF9E9E9E.toInt()   // Серый для неактивного игрока
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +58,10 @@ class MainActivity : AppCompatActivity() {
     private fun initializeViews() {
         viewModel = ViewModelProvider(this)[GameViewModel::class.java]
         gridLayout = findViewById(R.id.gridLayout)
+        timerTextView = findViewById(R.id.tvTimer)
+        player1TextView = findViewById(R.id.tvPlayer1Score)
+        player2TextView = findViewById(R.id.tvPlayer2Score)
+        currentPlayerTextView = findViewById(R.id.tvCurrentPlayer)
     }
 
     private fun loadDictionary() {
@@ -50,6 +69,7 @@ class MainActivity : AppCompatActivity() {
             viewModel.setDictionary(words)
             repository.getRandomWord(words, GRID_SIZE)?.let { startWord ->
                 viewModel.placeCentralWord(startWord)
+                viewModel.startTimer() // Запускаем таймер после размещения центрального слова
             }
         }
     }
@@ -66,7 +86,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Вычисляем размеры ячеек после создания сетки
         gridLayout.post {
             cellWidth = gridLayout.width / GRID_SIZE
             cellHeight = gridLayout.height / GRID_SIZE
@@ -80,15 +99,16 @@ class MainActivity : AppCompatActivity() {
                 height = CELL_SIZE
                 rowSpec = GridLayout.spec(row)
                 columnSpec = GridLayout.spec(col)
-                // Добавляем отступы для видимых границ
                 setMargins(2, 2, 2, 2)
             }
 
-            // Устанавливаем цвет фона и границы для лучшей видимости
-            setBackgroundColor(getColorCompat(android.R.color.white))
-
             setOnTouchListener(createTouchListener(row, col))
             setOnClickListener { handleButtonClick(row, col) }
+
+            // Устанавливаем начальный цвет
+            setBackgroundColor(COLOR_EMPTY)
+            setTextColor(Color.BLACK)
+            textSize = 16f
         }
     }
 
@@ -100,10 +120,7 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_MOVE -> handleTouchMove(event)
             MotionEvent.ACTION_UP -> {
                 handleTouchUp()
-                // Разрешаем клик только если ячейка пустая (для добавления буквы)
-                if (!isCellOccupied(row, col)) {
-                    v.performClick()
-                }
+                v.performClick()
             }
         }
         true
@@ -111,9 +128,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleTouchDown(button: Button, row: Int, col: Int) {
         resetSelection()
-
+        if (viewModel.hasInsertedLetterThisTurn) {
+            Toast.makeText(this, "Вы уже ввели букву", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (isCellOccupied(row, col)) {
-            // Ячейка занята - начинаем выделение для составления слова
             selectButton(button, row, col)
             viewModel.startSelection(row, col)
         }
@@ -127,8 +146,10 @@ class MainActivity : AppCompatActivity() {
 
         if (isValidPosition(r, c) && isCellOccupied(r, c)) {
             buttons[r][c]?.let {
-                selectButton(it, r, c)
-                viewModel.continueSelection(r, c)
+                if (!selectedButtons.contains(it)) {
+                    selectButton(it, r, c)
+                    viewModel.continueSelection(r, c)
+                }
             }
         }
     }
@@ -147,12 +168,17 @@ class MainActivity : AppCompatActivity() {
         return if (isValidPosition(r, c)) r to c else null
     }
 
-    // Замените этот метод в MainActivity.kt
     private fun handleTouchUp() {
         val word = viewModel.finishSelection()
         if (word.isNotEmpty()) {
+            // Показываем значение слова при его принятии
+            val meaning = viewModel.getWordMeaning(word)
             val message = if (viewModel.tryAddWord(word)) {
-                "Принято: $word (+${word.length} очков)"
+                if (meaning != null) {
+                    "Принято: $word\n${meaning.meaningRu} | ${meaning.meaningKz}"
+                } else {
+                    "Принято: $word"
+                }
             } else {
                 "Недопустимое слово: $word"
             }
@@ -173,52 +199,114 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Проверяем, добавил ли игрок уже букву в этом ходу
-        if (viewModel.hasInsertedLetterThisTurn) {
-            Toast.makeText(this, "Вы уже ввели букву в этом ходу", Toast.LENGTH_SHORT).show()
-            return
+        val input = EditText(this).apply {
+            hint = "Введите одну букву"
         }
 
-        val input = EditText(this)
-        val dialog = AlertDialog.Builder(this)
+        AlertDialog.Builder(this)
             .setTitle("Введите букву")
             .setView(input)
             .setPositiveButton("OK") { _, _ ->
                 val letter = input.text.toString().uppercase()
-                if (letter.length == 1 && letter.all { it.isLetter() }) {
+                if (letter.length == 1) {
                     viewModel.placeLetter(row, col, letter)
+                    showWordDialog()
                 } else {
-                    Toast.makeText(this, "Введите одну букву", Toast.LENGTH_SHORT).show()
+                    showToast("Введите одну букву")
                 }
             }
             .setNegativeButton("Отмена", null)
-            .create()
-
-        dialog.show()
+            .show()
     }
 
-    // Удаляем неиспользуемый метод showWordDialog
-    // private fun showWordDialog() { ... }
+    private fun showWordDialog() {
+        val input = EditText(this).apply {
+            hint = "Введите слово с использованием добавленной буквы"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Введите слово")
+            .setView(input)
+            .setPositiveButton("ОК") { _, _ ->
+                val word = input.text.toString().uppercase()
+                val meaning = viewModel.getWordMeaning(word)
+                if (!viewModel.tryAddWord(word)) {
+                    showToast("Недопустимое слово")
+                    viewModel.resetLastInsertedLetter()
+                    viewModel.hasInsertedLetterThisTurn = false
+                } else if (meaning != null) {
+                    showMeaningDialog(word, meaning)
+                }
+            }
+            .setNegativeButton("Отмена") { _, _ ->
+                viewModel.resetLastInsertedLetter()
+                viewModel.hasInsertedLetterThisTurn = false
+            }
+            .show()
+    }
+
+    private fun showMeaningDialog(word: String, meaning: GameViewModel.WordInfo) {
+        AlertDialog.Builder(this)
+            .setTitle("Значение слова: $word")
+            .setMessage("🇷🇺 ${meaning.meaningRu}\n\n🇰🇿 ${meaning.meaningKz}")
+            .setPositiveButton("ОК", null)
+            .show()
+    }
 
     private fun selectButton(btn: Button, row: Int, col: Int) {
         if (!selectedButtons.contains(btn)) {
             selectedButtons.add(btn)
-            // ИСПРАВЛЕНО: используем временное выделение, которое сбрасывается после хода
-            btn.setBackgroundColor(getColorCompat(R.color.teal_200))
+            btn.setBackgroundColor(COLOR_SELECTED)
         }
     }
 
     private fun resetSelection() {
-        selectedButtons.forEach {
-            // Возвращаем белый цвет для обычных ячеек
-            it.setBackgroundColor(getColorCompat(android.R.color.white))
+        selectedButtons.forEach { button ->
+            // Восстанавливаем оригинальный цвет ячейки
+            val position = findButtonPosition(button)
+            position?.let { (row, col) ->
+                updateButtonColor(button, row, col)
+            }
         }
         selectedButtons.clear()
+    }
+
+    private fun findButtonPosition(targetButton: Button): Pair<Int, Int>? {
+        repeat(GRID_SIZE) { i ->
+            repeat(GRID_SIZE) { j ->
+                if (buttons[i][j] == targetButton) {
+                    return i to j
+                }
+            }
+        }
+        return null
+    }
+
+    private fun updateButtonColor(button: Button, row: Int, col: Int) {
+        val cellStates = viewModel.cellStates.value ?: return
+        val state = cellStates[row][col]
+
+        val color = when (state) {
+            GameViewModel.CellState.EMPTY -> COLOR_EMPTY
+            GameViewModel.CellState.CENTRAL_WORD -> COLOR_CENTRAL_WORD
+            GameViewModel.CellState.PLAYER_LETTER -> COLOR_PLAYER_LETTER
+            GameViewModel.CellState.SELECTED -> COLOR_SELECTED
+        }
+
+        button.setBackgroundColor(color)
     }
 
     private fun setupObservers() {
         viewModel.board.observe(this) { board ->
             updateBoardUI(board)
+        }
+
+        viewModel.cellStates.observe(this) { states ->
+            updateCellColors(states)
+        }
+
+        viewModel.selectedPositions.observe(this) { positions ->
+            updateSelectedPositions(positions)
         }
 
         viewModel.scores.observe(this) { (p1, p2) ->
@@ -227,6 +315,14 @@ class MainActivity : AppCompatActivity() {
 
         viewModel.playerTurn.observe(this) { player ->
             updateCurrentPlayerUI(player)
+        }
+
+        viewModel.timeLeft.observe(this) { time ->
+            updateTimerUI(time)
+        }
+
+        viewModel.gameMessage.observe(this) { message ->
+            showToast(message)
         }
     }
 
@@ -238,13 +334,65 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateCellColors(states: Array<Array<GameViewModel.CellState>>) {
+        repeat(GRID_SIZE) { i ->
+            repeat(GRID_SIZE) { j ->
+                buttons[i][j]?.let { button ->
+                    if (!selectedButtons.contains(button)) {
+                        updateButtonColor(button, i, j)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateSelectedPositions(positions: List<Pair<Int, Int>>) {
+        // Сбрасываем предыдущие выделения
+        selectedButtons.forEach { button ->
+            val position = findButtonPosition(button)
+            position?.let { (row, col) ->
+                updateButtonColor(button, row, col)
+            }
+        }
+        selectedButtons.clear()
+
+        // Применяем новые выделения
+        positions.forEach { (row, col) ->
+            buttons[row][col]?.let { button ->
+                selectedButtons.add(button)
+                button.setBackgroundColor(COLOR_SELECTED)
+            }
+        }
+    }
+
     private fun updateScoreUI(p1Score: Int, p2Score: Int) {
-        findViewById<TextView>(R.id.tvPlayer1Score).text = "Игрок 1: $p1Score"
-        findViewById<TextView>(R.id.tvPlayer2Score).text = "Игрок 2: $p2Score"
+        player1TextView.text = "Игрок 1: $p1Score"
+        player2TextView.text = "Игрок 2: $p2Score"
     }
 
     private fun updateCurrentPlayerUI(player: Int) {
-        findViewById<TextView>(R.id.tvCurrentPlayer).text = "Ходит игрок $player"
+        currentPlayerTextView.text = "Ходит игрок $player"
+
+        // Подсвечиваем активного игрока
+        if (player == 1) {
+            player1TextView.setTextColor(COLOR_PLAYER_ACTIVE)
+            player2TextView.setTextColor(COLOR_PLAYER_INACTIVE)
+        } else {
+            player1TextView.setTextColor(COLOR_PLAYER_INACTIVE)
+            player2TextView.setTextColor(COLOR_PLAYER_ACTIVE)
+        }
+    }
+
+    private fun updateTimerUI(timeLeft: Int) {
+        timerTextView.text = "⏰ $timeLeft сек"
+
+        // Меняем цвет таймера при критическом времени
+        val color = when {
+            timeLeft <= 10 -> Color.RED
+            timeLeft <= 20 -> 0xFFFF9800.toInt() // Оранжевый
+            else -> Color.BLACK
+        }
+        timerTextView.setTextColor(color)
     }
 
     // Вспомогательные методы
@@ -255,9 +403,6 @@ class MainActivity : AppCompatActivity() {
         viewModel.getBoard()[row][col].isNotEmpty()
 
     private fun showToast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
-
-    private fun getColorCompat(colorRes: Int): Int =
-        ContextCompat.getColor(this, colorRes)
 }

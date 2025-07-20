@@ -1,199 +1,252 @@
 package com.example.balda_beta.viewmodel
 
-import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class GameViewModel : ViewModel() {
 
-    private val selectedPath = mutableListOf<Pair<Int, Int>>()
     private val _board = MutableLiveData(Array(5) { Array(5) { "" } })
-    val board: LiveData<Array<Array<String>>> get() = _board
-
-    private val _scores = MutableLiveData(Pair(0, 0))
-    val scores: LiveData<Pair<Int, Int>> get() = _scores
+    val board: LiveData<Array<Array<String>>> = _board
 
     private val _playerTurn = MutableLiveData(1)
-    val playerTurn: LiveData<Int> get() = _playerTurn
+    val playerTurn: LiveData<Int> = _playerTurn
 
-    private var dictionary: Set<String> = emptySet()
-    private val lockedCells = mutableSetOf<Pair<Int, Int>>()
+    private val _scores = MutableLiveData(Pair(0, 0))
+    val scores: LiveData<Pair<Int, Int>> = _scores
+
+    private val _gameMessage = MutableLiveData<String>()
+    val gameMessage: LiveData<String> = _gameMessage
+
+    private val _timeLeft = MutableLiveData(50)
+    val timeLeft: LiveData<Int> = _timeLeft
+
+    private val _isTimeUp = MutableLiveData(false)
+    val isTimeUp: LiveData<Boolean> = _isTimeUp
+
+    // Цветовые состояния ячеек
+    private val _cellStates = MutableLiveData(Array(5) { Array(5) { CellState.EMPTY } })
+    val cellStates: LiveData<Array<Array<CellState>>> = _cellStates
+
+    // Выбранные позиции для подсветки
+    private val _selectedPositions = MutableLiveData<List<Pair<Int, Int>>>(emptyList())
+    val selectedPositions: LiveData<List<Pair<Int, Int>>> = _selectedPositions
+
     private val usedWords = mutableSetOf<String>()
-    private var centralWord: String = ""
+    private lateinit var dictionary: Map<String, WordInfo>
+    private val selectedPath = mutableListOf<Pair<Int, Int>>()
+    private var timerJob: Job? = null
 
     var hasInsertedLetterThisTurn = false
-    private var lastInsertedCell: Pair<Int, Int>? = null
+    private var lastInsertedPosition: Pair<Int, Int>? = null
 
-    fun setDictionary(words: Set<String>) {
-        dictionary = words.map { it.uppercase() }.toSet()
-        Log.d("GameViewModel", "Dictionary loaded: ${dictionary.size} words")
-        Log.d("GameViewModel", "Sample words: ${dictionary.take(10)}")
+    companion object {
+        const val GRID_SIZE = 5
+        const val MIN_WORD_LENGTH = 3
+        const val TURN_TIME_SECONDS = 50
     }
 
-    fun placeLetter(row: Int, col: Int, letter: String) {
-        if (hasInsertedLetterThisTurn || isCellLocked(row, col)) return
-        _board.value!![row][col] = letter.uppercase()
-        lastInsertedCell = row to col
+    enum class CellState {
+        EMPTY,           // Пустая ячейка
+        CENTRAL_WORD,    // Буквы центрального слова
+        PLAYER_LETTER,   // Буквы, добавленные игроками
+        SELECTED         // Выделенные ячейки при составлении слова
+    }
+
+    data class WordInfo(
+        val meaningKz: String,
+        val meaningRu: String
+    )
+
+    fun setDictionary(words: Map<String, WordInfo>) {
+        dictionary = words
+    }
+
+    fun placeLetter(row: Int, col: Int, letter: String): Boolean {
+        if (hasInsertedLetterThisTurn) return false
+
+        val current = _board.value ?: return false
+        val currentStates = _cellStates.value ?: return false
+
+        if (current[row][col].isNotEmpty()) return false
+
+        current[row][col] = letter
+        currentStates[row][col] = CellState.PLAYER_LETTER
+        lastInsertedPosition = row to col
         hasInsertedLetterThisTurn = true
-        _board.value = _board.value
+
+        _board.value = current
+        _cellStates.value = currentStates
+        return true
     }
 
-    fun isCellLocked(row: Int, col: Int): Boolean {
-        return (row to col) in lockedCells
+    fun resetLastInsertedLetter() {
+        lastInsertedPosition?.let { (row, col) ->
+            val current = _board.value ?: return
+            val currentStates = _cellStates.value ?: return
+
+            current[row][col] = ""
+            currentStates[row][col] = CellState.EMPTY
+
+            _board.value = current
+            _cellStates.value = currentStates
+            lastInsertedPosition = null
+        }
     }
 
     fun tryAddWord(word: String): Boolean {
         val upperWord = word.uppercase()
-
-        Log.d("GameViewModel", "=== Checking word: '$upperWord' ===")
-        Log.d("GameViewModel", "Word length: ${upperWord.length}")
-        Log.d("GameViewModel", "Selected path: $selectedPath")
-        Log.d("GameViewModel", "Has inserted letter: $hasInsertedLetterThisTurn")
-        Log.d("GameViewModel", "Last inserted cell: $lastInsertedCell")
-
-        // Проверка длины слова
-        if (upperWord.length < 2) {
-            Log.d("GameViewModel", "REJECTED: Word too short (< 3 letters)")
-            resetLastInsertedLetter()
+        if (upperWord.length < MIN_WORD_LENGTH || upperWord !in dictionary.keys || upperWord in usedWords) {
+            _gameMessage.value = "Недопустимое слово: $word"
             return false
         }
 
-        // Проверка на повторное использование слова
-        if (usedWords.contains(upperWord)) {
-            Log.d("GameViewModel", "REJECTED: Word already used")
-            Log.d("GameViewModel", "Used words: $usedWords")
-            resetLastInsertedLetter()
-            return false
-        }
-
-        // Проверка наличия в словаре
-        if (!dictionary.contains(upperWord)) {
-            Log.d("GameViewModel", "REJECTED: Word not in dictionary")
-            Log.d("GameViewModel", "Dictionary size: ${dictionary.size}")
-            // Попробуем найти похожие слова для отладки
-            val similarWords = dictionary.filter { it.contains(upperWord) || upperWord.contains(it) }
-            Log.d("GameViewModel", "Similar words in dictionary: $similarWords")
-            resetLastInsertedLetter()
-            return false
-        }
-
-        // Проверяем, что слово не является центральным словом
-        if (upperWord == centralWord) {
-            Log.d("GameViewModel", "REJECTED: Word is central word ('$centralWord')")
-            resetLastInsertedLetter()
-            return false
-        }
-
-//         Проверяем, что слово не является подстрокой центрального слова
-        if (centralWord.contains(upperWord) && !isWordExtension(upperWord)) {
-            Log.d("GameViewModel", "REJECTED: Word is substring of central word ('$centralWord')")
-            resetLastInsertedLetter()
-            return false
-        }
-
-        // Проверяем, что слово использует добавленную букву (если она была добавлена)
-        if (hasInsertedLetterThisTurn && !wordUsesInsertedLetter()) {
-            Log.d("GameViewModel", "REJECTED: Word doesn't use inserted letter")
-            resetLastInsertedLetter()
-            return false
-        }
-
-        // Слово прошло все проверки - принимаем его
-        Log.d("GameViewModel", "ACCEPTED: Word '$upperWord' is valid!")
         usedWords.add(upperWord)
+        val (p1, p2) = _scores.value ?: Pair(0, 0)
+        val wordScore = if (_isTimeUp.value == true) 0 else word.length
+        val newScores = if (_playerTurn.value == 1) Pair(p1 + wordScore, p2) else Pair(p1, p2 + wordScore)
+        _scores.value = newScores
 
-        val current = _scores.value!!
-        val updated = if (_playerTurn.value == 1)
-            current.copy(first = current.first + upperWord.length)
-        else current.copy(second = current.second + upperWord.length)
-        _scores.value = updated
+        val meaning = dictionary[upperWord]
+        val messageText = if (wordScore == 0) {
+            "Время вышло! Слово: $word (0 очков)"
+        } else {
+            "Принято: $word (+$wordScore очков)"
+        }
+        _gameMessage.value = messageText
 
-        // Завершение хода - закрепляем добавленную букву
-        lastInsertedCell?.let { lockedCells.add(it) }
-        lastInsertedCell = null
-        hasInsertedLetterThisTurn = false
-        _playerTurn.value = if (_playerTurn.value == 1) 2 else 1
-
-        selectedPath.clear()
+        nextPlayer()
         return true
     }
 
-    private fun isWordExtension(word: String): Boolean {
-        return word.length > centralWord.length &&
-                (word.startsWith(centralWord) || word.endsWith(centralWord) || word.contains(centralWord))
-    }
-
-    private fun wordUsesInsertedLetter(): Boolean {
-        if (lastInsertedCell == null) return true
-        val (row, col) = lastInsertedCell!!
-        val usesInserted = selectedPath.contains(row to col)
-        Log.d("GameViewModel", "Checking if word uses inserted letter at ($row, $col): $usesInserted")
-        return usesInserted
-    }
-
-    fun resetLastInsertedLetter() {
-        lastInsertedCell?.let { (row, col) ->
-            _board.value!![row][col] = ""
-            _board.value = _board.value
-            Log.d("GameViewModel", "Reset inserted letter at ($row, $col)")
-        }
-        lastInsertedCell = null
-        hasInsertedLetterThisTurn = false
-        selectedPath.clear()
-    }
-
     fun placeCentralWord(word: String) {
-        val row = 2
-        val startCol = (5 - word.length) / 2
-        centralWord = word.uppercase()
+        val mid = 2
+        val start = (GRID_SIZE - word.length) / 2
+        val current = _board.value ?: return
+        val currentStates = _cellStates.value ?: return
 
-        Log.d("GameViewModel", "Placing central word: '$centralWord'")
-
-        word.uppercase().forEachIndexed { index, c ->
-            _board.value!![row][startCol + index] = c.toString()
-            lockedCells.add(row to (startCol + index))
+        for (i in word.indices) {
+            current[mid][start + i] = word[i].toString()
+            currentStates[mid][start + i] = CellState.CENTRAL_WORD
         }
-        _board.value = _board.value
+        _board.value = current
+        _cellStates.value = currentStates
     }
 
-    fun startSelection(row: Int, col: Int) {
+    fun startSelection(row: Int, col: Int): Boolean {
         selectedPath.clear()
-        selectedPath.add(row to col)
-        Log.d("GameViewModel", "Started selection at ($row, $col)")
+        return if (isCellOccupied(row, col)) {
+            selectedPath.add(row to col)
+            updateSelectedPositions()
+            true
+        } else false
     }
 
-    fun continueSelection(row: Int, col: Int) {
-        val last = selectedPath.lastOrNull()
-        if (last != null && isAdjacent(last, row to col) && !selectedPath.contains(row to col)) {
-            selectedPath.add(row to col)
-            Log.d("GameViewModel", "Continued selection to ($row, $col), path: $selectedPath")
-        }
+    fun continueSelection(row: Int, col: Int): Boolean {
+        val position = row to col
+
+        if (position in selectedPath) return false
+
+        return if (canSelectPosition(position)) {
+            selectedPath.add(position)
+            updateSelectedPositions()
+            true
+        } else false
     }
 
     fun finishSelection(): String {
-        val board = _board.value ?: return ""
-        val word = selectedPath.map { (i, j) -> board[i][j] }.joinToString("")
-        Log.d("GameViewModel", "Finished selection, word: '$word', path: $selectedPath")
+        val word = buildSelectedWord()
+        selectedPath.clear()
+        updateSelectedPositions()
         return word
+    }
+
+    fun resetSelection() {
+        selectedPath.clear()
+        updateSelectedPositions()
+    }
+
+    private fun updateSelectedPositions() {
+        _selectedPositions.value = selectedPath.toList()
+    }
+
+    fun getWordMeaning(word: String): WordInfo? {
+        return dictionary[word.uppercase()]
+    }
+
+    fun isCellLocked(row: Int, col: Int): Boolean {
+        return isCellOccupied(row, col)
+    }
+
+    fun isCellOccupied(row: Int, col: Int): Boolean {
+        val board = _board.value ?: return false
+        return isValidPosition(row, col) && board[row][col].isNotEmpty()
+    }
+
+    fun isValidPosition(row: Int, col: Int): Boolean =
+        row in 0 until GRID_SIZE && col in 0 until GRID_SIZE
+
+    private fun canSelectPosition(position: Pair<Int, Int>): Boolean {
+        val (row, col) = position
+        return position !in selectedPath &&
+                isCellOccupied(row, col) &&
+                (selectedPath.isEmpty() || isAdjacent(selectedPath.last(), position))
+    }
+
+    private fun buildSelectedWord(): String {
+        val board = _board.value ?: return ""
+        return selectedPath.joinToString("") { (row, col) ->
+            board[row][col]
+        }
     }
 
     private fun isAdjacent(a: Pair<Int, Int>, b: Pair<Int, Int>): Boolean {
         val dx = kotlin.math.abs(a.first - b.first)
         val dy = kotlin.math.abs(a.second - b.second)
-        return (dx + dy == 1)
+        return (dx + dy == 1) && (dx <= 1 && dy <= 1)
+    }
+
+    fun startTimer() {
+        stopTimer()
+        _timeLeft.value = TURN_TIME_SECONDS
+        _isTimeUp.value = false
+
+        timerJob = viewModelScope.launch {
+            for (i in TURN_TIME_SECONDS downTo 1) {
+                _timeLeft.value = i
+                delay(1000)
+            }
+            _timeLeft.value = 0
+            _isTimeUp.value = true
+            _gameMessage.value = "Время вышло!"
+            // Автоматически передаем ход следующему игроку через 2 секунды
+            delay(2000)
+            nextPlayer()
+        }
+    }
+
+    private fun stopTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
+
+    private fun nextPlayer() {
+        _playerTurn.value = if (_playerTurn.value == 1) 2 else 1
+        hasInsertedLetterThisTurn = false
+        lastInsertedPosition = null
+        startTimer()
     }
 
     fun getBoard(): Array<Array<String>> {
-        return board.value ?: Array(5) { Array(5) { "" } }
+        return board.value ?: Array(GRID_SIZE) { Array(GRID_SIZE) { "" } }
     }
 
-    fun isValidLetter(letter: String): Boolean {
-        return letter.length == 1 && letter[0].isLetter()
+    override fun onCleared() {
+        super.onCleared()
+        stopTimer()
     }
-
-    // Дополнительные методы для отладки
-    fun getSelectedPath(): List<Pair<Int, Int>> = selectedPath.toList()
-    fun getDictionarySize(): Int = dictionary.size
-    fun getCentralWord(): String = centralWord
 }

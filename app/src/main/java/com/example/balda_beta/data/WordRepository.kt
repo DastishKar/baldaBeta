@@ -1,21 +1,32 @@
 package com.example.balda_beta.data
 
 import com.google.firebase.database.FirebaseDatabase
+import com.example.balda_beta.viewmodel.GameViewModel
 
-// data/WordRepository.kt
 class WordRepository {
 
-    fun fetchDictionary(callback: (Set<String>) -> Unit) {
+    fun fetchDictionary(callback: (Map<String, GameViewModel.WordInfo>) -> Unit) {
         val db = FirebaseDatabase.getInstance().getReference("kazakh_words")
         db.get().addOnSuccessListener { snapshot ->
-            val words = snapshot.children.mapNotNull { it.key?.uppercase() }.toSet()
+            val words = mutableMapOf<String, GameViewModel.WordInfo>()
+
+            snapshot.children.forEach { wordSnapshot ->
+                val word = wordSnapshot.key?.uppercase()
+                val meaningKz = wordSnapshot.child("meaning_kz").getValue(String::class.java) ?: ""
+                val meaningRu = wordSnapshot.child("meaning_ru").getValue(String::class.java) ?: ""
+
+                if (word != null && meaningKz.isNotEmpty() && meaningRu.isNotEmpty()) {
+                    words[word] = GameViewModel.WordInfo(meaningKz, meaningRu)
+                }
+            }
+
             callback(words)
         }.addOnFailureListener {
-            callback(emptySet())
+            callback(emptyMap())
         }
     }
 
-    fun getRandomWord(dictionary: Set<String>, length: Int = 5): String? {
-        return dictionary.filter { it.length == length }.randomOrNull()
+    fun getRandomWord(dictionary: Map<String, GameViewModel.WordInfo>, length: Int = 5): String? {
+        return dictionary.keys.filter { it.length == length }.randomOrNull()
     }
 }

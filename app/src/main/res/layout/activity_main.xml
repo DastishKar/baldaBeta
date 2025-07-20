@@ -1,38 +1,109 @@
-<!-- res/layout/activity_main.xml -->
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
-    android:padding="16dp">
-
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@drawable/backgorund">
     <GridLayout
         android:id="@+id/gridLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:rowCount="5"
         android:columnCount="5" />
-    <TextView
-        android:id="@+id/tvPlayer1Score"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Игрок 1: 0 очков"
-        android:layout_marginTop="16dp"
-        android:textSize="16sp"/>
 
+    <!-- Заголовок игры -->
     <TextView
-        android:id="@+id/tvPlayer2Score"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Игрок 2: 0 очков"
-        android:textSize="16sp"/>
+        android:text="🎯 BALDA BETA"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textAlignment="center"
+        android:textColor="@color/teal_700"
+        android:layout_marginBottom="16dp" />
 
+    <!-- Информация об игроках и таймер -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            >
+
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/player1_background"/>
+            <!-- Игрок 1 -->
+            <TextView
+                android:id="@+id/tvPlayer1Score"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Игрок 1: 0"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:padding="8dp"
+                android:textAlignment="center" />
+        </LinearLayout>
+        <!-- Таймер -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/timer_background"
+                android:padding="8dp"/>
+            <TextView
+                android:id="@+id/tvTimer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="50 сек"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:padding="8dp"
+                android:textColor="@android:color/black" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <!-- Игрок 2 -->
+            <TextView
+                android:id="@+id/tvPlayer2Score"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Игрок 2: 0"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:padding="8dp"
+                android:textAlignment="center" />
+            <ImageView
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/player2_background"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Текущий игрок -->
     <TextView
         android:id="@+id/tvCurrentPlayer"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Игрок 1 ходит"
+        android:text="Ходит игрок 1"
         android:textSize="18sp"
-        android:layout_marginTop="20dp"/>
-
+        android:textStyle="bold"
+        android:textAlignment="center"
+        android:layout_marginBottom="16dp"
+        android:textColor="@color/teal_700"/>
 </LinearLayout>
+
