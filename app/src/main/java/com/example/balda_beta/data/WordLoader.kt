@@ -6,7 +6,6 @@ import android.content.Context
 import com.google.firebase.database.FirebaseDatabase
 
 object WordLoader {
-
     // Загрузка слов из Firebase
     fun loadFromFirebase(onResult: (Set<String>) -> Unit, onError: (() -> Unit)? = null) {
         val db = FirebaseDatabase.getInstance().getReference("kazakh_words")

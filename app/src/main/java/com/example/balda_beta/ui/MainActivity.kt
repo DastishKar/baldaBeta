@@ -111,11 +111,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleTouchDown(button: Button, row: Int, col: Int) {
         resetSelection()
-        if (viewModel.hasInsertedLetterThisTurn){
-            Toast.makeText(this, "Вы уже ввели букву", Toast.LENGTH_SHORT).show()
-            return
-        }
+
         if (isCellOccupied(row, col)) {
+            // Ячейка занята - начинаем выделение для составления слова
             selectButton(button, row, col)
             viewModel.startSelection(row, col)
         }
@@ -149,11 +147,12 @@ class MainActivity : AppCompatActivity() {
         return if (isValidPosition(r, c)) r to c else null
     }
 
+    // Замените этот метод в MainActivity.kt
     private fun handleTouchUp() {
         val word = viewModel.finishSelection()
         if (word.isNotEmpty()) {
             val message = if (viewModel.tryAddWord(word)) {
-                "Принято: $word"
+                "Принято: $word (+${word.length} очков)"
             } else {
                 "Недопустимое слово: $word"
             }
@@ -171,6 +170,12 @@ class MainActivity : AppCompatActivity() {
     private fun showLetterDialog(row: Int, col: Int) {
         if (viewModel.isCellLocked(row, col)) {
             Toast.makeText(this, "Клетка уже занята", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Проверяем, добавил ли игрок уже букву в этом ходу
+        if (viewModel.hasInsertedLetterThisTurn) {
+            Toast.makeText(this, "Вы уже ввели букву в этом ходу", Toast.LENGTH_SHORT).show()
             return
         }
 
